@@ -153,7 +153,7 @@ export default function TreeCanvas({ containerRef }: Props) {
         }));
 
         return { rfNodes: nodes, rfEdges: edges };
-    }, [tree, isDark]);
+    }, [tree, isDark, layoutDirection]);
 
     // compute dagre positions (memoized)
     const positionedNodes = useMemo(() => {
