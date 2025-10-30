@@ -17,6 +17,8 @@ import * as htmlToImage from 'html-to-image';
 import { useAppSelector } from '@/redux/store/hooks';
 import { selectTreeModel } from '@/redux/json/slice';
 import { selectDownloadImageCounter, selectFitViewCounter, selectZoomDelta, selectZoomRequestId } from '@/redux/ui/slice';
+import { selectLayoutDirection } from '@/redux/ui/slice';
+
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 50;
 
@@ -97,6 +99,10 @@ export default function TreeCanvas({ containerRef }: Props) {
     const { theme, systemTheme } = useTheme();
     const currentTheme = theme === 'system' ? systemTheme : theme;
     const isDark = currentTheme === 'dark';
+    const layoutDirection = useAppSelector(selectLayoutDirection) ?? 'TB';
+    useEffect(() => {
+        console.log('[TreeCanvas] layoutDirection from store ->', layoutDirection);
+    }, [layoutDirection]);
     const rf = useReactFlow()
 
     // prepare react-flow nodes/edges from our tree model
@@ -117,10 +123,15 @@ export default function TreeCanvas({ containerRef }: Props) {
                 </div>
             );
 
+            const sourcePos = layoutDirection === 'LR' ? 'right' : 'bottom';
+            const targetPos = layoutDirection === 'LR' ? 'left' : 'top';
+
             return {
                 id: n.id,
                 data: { label },
                 position: { x: 0, y: 0 }, // dagre will set real positions
+                sourcePosition: sourcePos,
+                targetPosition: targetPos,
                 style: {
                     width: NODE_WIDTH,
                     height: NODE_HEIGHT,
@@ -147,8 +158,12 @@ export default function TreeCanvas({ containerRef }: Props) {
     // compute dagre positions (memoized)
     const positionedNodes = useMemo(() => {
         if (rfNodes.length === 0) return [];
-        return dagreLayout(rfNodes, rfEdges, 'TB'); // top -> bottom
-    }, [rfNodes, rfEdges]);
+        console.log('[TreeCanvas] calling dagreLayout with direction=', layoutDirection);
+        const out = dagreLayout(rfNodes, rfEdges, layoutDirection);
+        console.log('[TreeCanvas] positionedNodes sample positions:', out.slice(0, 5).map(n => ({ id: n.id, pos: n.position })));
+        return out;
+    }, [rfNodes, rfEdges, layoutDirection]);
+
 
     // Fit view whenever nodes change
     useEffect(() => {

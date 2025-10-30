@@ -1,16 +1,17 @@
 'use client';
 
 import React from 'react';
-import { Search, Download, ZoomIn, ZoomOut, Maximize2, Keyboard } from 'lucide-react';
+import { Search, Download, ZoomIn, ZoomOut, Maximize2, Keyboard, ArrowRightLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ThemeToggle from './theme-toggle';
-import { useAppDispatch } from '@/redux/store/hooks';
-import { requestDownloadImage, requestFitView, requestZoom } from '@/redux/ui/slice';
+import { useAppDispatch, useAppSelector } from '@/redux/store/hooks';
+import { requestDownloadImage, requestFitView, requestZoom, selectLayoutDirection, setLayoutDirection } from '@/redux/ui/slice';
 
 export default function Navbar() {
   const dispatch = useAppDispatch();
+  const layoutDirection = useAppSelector(selectLayoutDirection);
   // small no-op handlers (replace later with real actions)
-  const noop = () => {};
+  const noop = () => { };
 
   return (
     <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-background/80 backdrop-blur-md sticky top-0 z-50">
@@ -60,6 +61,21 @@ export default function Navbar() {
 
           <Button variant="ghost" size="icon" aria-label="Fit view" title="Fit view" onClick={() => dispatch(requestFitView())}>
             <Maximize2 className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Rotate tree layout"
+            title={`Rotate layout (${layoutDirection === 'TB' ? 'Top→Bottom' : 'Left→Right'})`}
+            onClick={() => {
+              console.log('[Navbar] rotate clicked, current direction:', layoutDirection);
+              const next = layoutDirection === 'TB' ? 'LR' : 'TB';
+              console.log('[Navbar] dispatching setLayoutDirection(', next, ')');
+              dispatch(setLayoutDirection(next));
+              dispatch(requestFitView());
+            }}
+          >
+            <ArrowRightLeft className="w-4 h-4" />
           </Button>
 
           {/* Theme toggle (shadcn) */}

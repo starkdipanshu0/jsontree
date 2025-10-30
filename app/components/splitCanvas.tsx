@@ -123,10 +123,7 @@ export default function SplitCanvas() {
         </div>
 
         <section style={{ width: `${100 - leftWidth}%` }} className="flex-1 flex flex-col">
-          <div className="p-3 border-b border-border">
-            <div className="text-sm font-medium">Visualizer</div>
-            <div className="text-xs text-muted-foreground">React Flow Canvas</div>
-          </div>
+          
           <div className="flex-1" ref={containerRef}>
             <ReactFlowProvider>
               <TreeCanvas  containerRef={containerRef} />
