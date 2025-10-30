@@ -16,7 +16,7 @@ import { useTheme } from 'next-themes';
 import * as htmlToImage from 'html-to-image';
 import { useAppSelector } from '@/redux/store/hooks';
 import { selectTreeModel } from '@/redux/json/slice';
-import { selectDownloadImageCounter, selectFitViewCounter, selectZoomDelta, selectZoomRequestId } from '@/redux/ui/slice';
+import { selectDownloadImageCounter, selectFitViewCounter, selectSearchQuery, selectZoomDelta, selectZoomRequestId } from '@/redux/ui/slice';
 import { selectLayoutDirection } from '@/redux/ui/slice';
 
 const NODE_WIDTH = 180;
@@ -100,10 +100,20 @@ export default function TreeCanvas({ containerRef }: Props) {
     const currentTheme = theme === 'system' ? systemTheme : theme;
     const isDark = currentTheme === 'dark';
     const layoutDirection = useAppSelector(selectLayoutDirection) ?? 'TB';
+    const searchQuery = useAppSelector(selectSearchQuery)?.trim().toLowerCase();
     useEffect(() => {
         console.log('[TreeCanvas] layoutDirection from store ->', layoutDirection);
     }, [layoutDirection]);
-    const rf = useReactFlow()
+    const rf = useReactFlow();
+    useEffect(() => {
+        if (!rf || !rf.fitView || !searchQuery) return;
+        const match = positionedNodes.find((n) =>
+            n.data?.label?.props?.children[0]?.toLowerCase?.().includes?.(searchQuery)
+        );
+        if (match) {
+            rf.setCenter(match.position.x, match.position.y, { zoom: 1.3, duration: 500 });
+        }
+    }, [searchQuery]);
 
     // prepare react-flow nodes/edges from our tree model
     const { rfNodes, rfEdges } = useMemo(() => {
@@ -126,6 +136,11 @@ export default function TreeCanvas({ containerRef }: Props) {
             const sourcePos = layoutDirection === 'LR' ? 'right' : 'bottom';
             const targetPos = layoutDirection === 'LR' ? 'left' : 'top';
 
+            const isMatch =
+                !!searchQuery &&
+                (n.label.toLowerCase().includes(searchQuery) ||
+                    n.valuePreview?.toLowerCase().includes(searchQuery));
+
             return {
                 id: n.id,
                 data: { label },
@@ -136,10 +151,14 @@ export default function TreeCanvas({ containerRef }: Props) {
                     width: NODE_WIDTH,
                     height: NODE_HEIGHT,
                     background: colors.bg,
-                    border: `2px solid ${colors.border}`,
+                    border: `2px solid ${isMatch ? '#22c55e' : colors.border}`,
                     color: colors.text,
                     borderRadius: 8,
-                    boxShadow: isDark ? '0 2px 8px rgba(0,0,0,0.6)' : '0 1px 4px rgba(16,24,40,0.04)',
+                    boxShadow: isMatch
+                        ? '0 0 8px 2px rgba(34,197,94,0.6)'
+                        : isDark
+                            ? '0 2px 8px rgba(0,0,0,0.6)'
+                            : '0 1px 4px rgba(16,24,40,0.04)',
                 },
             } as RFNode;
         });
@@ -153,7 +172,7 @@ export default function TreeCanvas({ containerRef }: Props) {
         }));
 
         return { rfNodes: nodes, rfEdges: edges };
-    }, [tree, isDark, layoutDirection]);
+    }, [tree, isDark, layoutDirection, searchQuery]);
 
     // compute dagre positions (memoized)
     const positionedNodes = useMemo(() => {
@@ -252,7 +271,7 @@ export default function TreeCanvas({ containerRef }: Props) {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [downloadCounter, containerRef, isDark]);
+    }, [downloadCounter, containerRef, isDark,]);
 
     return (
         <div className="h-full w-full">
@@ -267,6 +286,7 @@ export default function TreeCanvas({ containerRef }: Props) {
 /** inner component uses useReactFlow safely inside provider */
 function InnerFlow({ nodes, edges, isDark }: { nodes: RFNode[]; edges: RFEdge[]; isDark: boolean }) {
     const rf = useReactFlow();
+    const searchQuery = useAppSelector(selectSearchQuery)?.trim().toLowerCase() ?? '';
 
     useEffect(() => {
         if (!rf || nodes.length === 0) return;
@@ -315,6 +335,29 @@ function InnerFlow({ nodes, edges, isDark }: { nodes: RFNode[]; edges: RFEdge[];
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [zoomRequestId]); // react when id changes
+
+    useEffect(() => {
+        if (!rf || !searchQuery) return;
+        // find the first match
+        const match = nodes.find((n) => {
+            const rawLabel = String((n.data as any)?.rawLabel ?? '').toLowerCase();
+            const rawPreview = String((n.data as any)?.rawPreview ?? '').toLowerCase();
+            return rawLabel.includes(searchQuery) || rawPreview.includes(searchQuery);
+        });
+        if (!match) {
+            console.log('[InnerFlow] no match to focus for query:', searchQuery);
+            return;
+        }
+        console.log('[InnerFlow] focusing match', match.id, match.position);
+        try {
+            // center on match (setViewport is alternative in older versions)
+            rf.setCenter?.(match.position.x, match.position.y, { zoom: 1.2, duration: 400 });
+            // fallback:
+            // rf.setViewport({ x: match.position.x, y: match.position.y, zoom: 1.2 });
+        } catch (err) {
+            console.warn('[InnerFlow] focus failed', err);
+        }
+    }, [searchQuery, nodes, rf]);
 
 
 

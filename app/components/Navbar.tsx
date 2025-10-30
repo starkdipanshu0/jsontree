@@ -1,18 +1,35 @@
 'use client';
 
-import React from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { Search, Download, ZoomIn, ZoomOut, Maximize2, Keyboard, ArrowRightLeft, Columns } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ThemeToggle from './theme-toggle';
 import { useAppDispatch, useAppSelector } from '@/redux/store/hooks';
-import { requestDownloadImage, requestFitView, requestZoom, selectIsEditorOpen, selectLayoutDirection, setLayoutDirection, toggleEditor } from '@/redux/ui/slice';
+import { requestDownloadImage, requestFitView, requestZoom, selectIsEditorOpen, selectLayoutDirection, selectSearchQuery, setLayoutDirection, setSearchQuery, toggleEditor } from '@/redux/ui/slice';
+import debounce from 'lodash.debounce';
 
 export default function Navbar() {
   const dispatch = useAppDispatch();
   const layoutDirection = useAppSelector(selectLayoutDirection);
   const isEditorOpen = useAppSelector(selectIsEditorOpen);
   // small no-op handlers (replace later with real actions)
-  const noop = () => { };
+  const currentSearch = useAppSelector(selectSearchQuery);
+
+  const debouncedDispatch = useMemo(
+    () =>
+      debounce((val: string) => {
+        console.log('[Navbar] debounced dispatch setSearchQuery ->', val);
+        dispatch(setSearchQuery(val));
+      }, 1000),
+    [dispatch]
+  );
+
+  // cleanup on unmount
+  useEffect(() => {
+    return () => {
+      debouncedDispatch.cancel();
+    };
+  }, [debouncedDispatch]);
 
   return (
     <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-background/80 backdrop-blur-md sticky top-0 z-50">
@@ -40,15 +57,21 @@ export default function Navbar() {
           <input
             id="site-search"
             type="text"
-            placeholder="Search..."
+            placeholder="Search nodes..."
             aria-label="Search nodes"
+            defaultValue={currentSearch ?? ""}
+            onChange={(e) => {
+              const v = e.target.value;
+              console.log('[Navbar] input onChange ->', v);
+              debouncedDispatch(v);
+            }}
             className="pl-8 pr-3 py-1.5 text-sm rounded-md border border-input bg-muted/30 dark:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-primary transition w-64"
           />
         </div>
 
         {/* Toolbar buttons: icon-only on small screens, icon+label on md+ */}
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" aria-label="Download JSON" title="Download JSON" onClick={() => dispatch(requestDownloadImage())}>
+          <Button variant="ghost" size="icon" aria-label="Download Tree" title="Download Tree" onClick={() => dispatch(requestDownloadImage())}>
             <Download className="w-4 h-4" />
           </Button>
 
