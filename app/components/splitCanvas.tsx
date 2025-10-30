@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import EditorPanel from './EditorCanvas';
 import TreeCanvas from './TreeCanvas';
 import { ReactFlowProvider } from 'reactflow';
+import { useAppSelector } from '@/redux/store/hooks';
+import { selectIsEditorOpen } from '@/redux/ui/slice';
 
 const STORAGE_KEY = 'split-left-width';
 const MIN_PCT = 15;
@@ -13,6 +15,7 @@ export default function SplitCanvas() {
   // SERVER-SAFE default value — do NOT access window/localStorage here
   const [leftWidth, setLeftWidth] = useState<number>(45);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const isEditorOpen = useAppSelector(selectIsEditorOpen);
 
   const dragging = useRef(false);
   const splitterRef = useRef<HTMLDivElement | null>(null);
@@ -36,7 +39,7 @@ export default function SplitCanvas() {
   useEffect(() => {
     try {
       window.localStorage.setItem(STORAGE_KEY, String(leftWidth));
-    } catch {}
+    } catch { }
   }, [leftWidth]);
 
   // pointer handlers (use currentTarget)
@@ -44,7 +47,7 @@ export default function SplitCanvas() {
     dragging.current = true;
     try {
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    } catch {}
+    } catch { }
     splitterRef.current = e.currentTarget as HTMLDivElement;
   };
 
@@ -68,7 +71,7 @@ export default function SplitCanvas() {
       } else {
         (e.currentTarget as Element).releasePointerCapture(e.pointerId);
       }
-    } catch {}
+    } catch { }
   };
 
   // keyboard support
@@ -98,35 +101,39 @@ export default function SplitCanvas() {
   return (
     <div className="h-full bg-background text-foreground">
       <main id="split-root" className="flex h-[calc(100vh-64px)]">
-        <aside style={{ width: `${leftWidth}%` }} className="flex flex-col border-r border-border">
-          <div className="flex-1">
-            <EditorPanel />
-          </div>
-        </aside>
+        {isEditorOpen ? (
+          <aside style={{ width: `${leftWidth}%` }} className="flex flex-col border-r border-border">
+            <div className="flex-1">
+              <EditorPanel />
+            </div>
+          </aside>
+        ) : null}
 
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-valuemin={MIN_PCT}
-          aria-valuemax={MAX_PCT}
-          aria-valuenow={Math.round(leftWidth)}
-          tabIndex={0}
-          ref={splitterRef}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onKeyDown={onSplitterKeyDown}
-          className="w-2 cursor-col-resize bg-transparent hover:bg-border flex items-center justify-center"
-          style={{ touchAction: 'none' }}
-        >
-          <div className="w-0.5 h-24 bg-border rounded" />
-        </div>
+        {isEditorOpen ? (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuemin={MIN_PCT}
+            aria-valuemax={MAX_PCT}
+            aria-valuenow={Math.round(leftWidth)}
+            tabIndex={0}
+            ref={splitterRef}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onKeyDown={onSplitterKeyDown}
+            className="w-2 cursor-col-resize bg-transparent hover:bg-border flex items-center justify-center"
+            style={{ touchAction: 'none' }}
+          >
+            <div className="w-0.5 h-24 bg-border rounded" />
+          </div>
+        ) : null}
 
         <section style={{ width: `${100 - leftWidth}%` }} className="flex-1 flex flex-col">
-          
+
           <div className="flex-1" ref={containerRef}>
             <ReactFlowProvider>
-              <TreeCanvas  containerRef={containerRef} />
+              <TreeCanvas containerRef={containerRef} />
             </ReactFlowProvider>
           </div>
         </section>

@@ -1,15 +1,16 @@
 'use client';
 
 import React from 'react';
-import { Search, Download, ZoomIn, ZoomOut, Maximize2, Keyboard, ArrowRightLeft } from 'lucide-react';
+import { Search, Download, ZoomIn, ZoomOut, Maximize2, Keyboard, ArrowRightLeft, Columns } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ThemeToggle from './theme-toggle';
 import { useAppDispatch, useAppSelector } from '@/redux/store/hooks';
-import { requestDownloadImage, requestFitView, requestZoom, selectLayoutDirection, setLayoutDirection } from '@/redux/ui/slice';
+import { requestDownloadImage, requestFitView, requestZoom, selectIsEditorOpen, selectLayoutDirection, setLayoutDirection, toggleEditor } from '@/redux/ui/slice';
 
 export default function Navbar() {
   const dispatch = useAppDispatch();
   const layoutDirection = useAppSelector(selectLayoutDirection);
+  const isEditorOpen = useAppSelector(selectIsEditorOpen);
   // small no-op handlers (replace later with real actions)
   const noop = () => { };
 
@@ -78,14 +79,21 @@ export default function Navbar() {
             <ArrowRightLeft className="w-4 h-4" />
           </Button>
 
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={isEditorOpen ? 'Collapse editor' : 'Open editor'}
+            title={isEditorOpen ? 'Collapse editor' : 'Open editor'}
+            onClick={() => {
+              dispatch(toggleEditor());
+              dispatch(requestFitView());
+            }}
+          >
+            <Columns className="w-4 h-4" />
+          </Button>
+
           {/* Theme toggle (shadcn) */}
           <ThemeToggle />
-
-          {/* Shortcuts dropdown placeholder — replace with menu/popover later */}
-          <Button variant="outline" size="sm" className="flex items-center gap-2" onClick={noop} aria-label="Shortcuts" title="Shortcuts">
-            <Keyboard className="w-4 h-4" />
-            <span className="hidden sm:inline">Shortcuts</span>
-          </Button>
         </div>
       </div>
     </header>
