@@ -2,150 +2,200 @@
 
 import React, { useEffect, useMemo } from 'react';
 import ReactFlow, {
-    addEdge,
     Background,
     Controls,
     MiniMap,
     Node as RFNode,
     Edge as RFEdge,
+    ReactFlowProvider,
     useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import dagre from 'dagre';
+import { useTheme } from 'next-themes';
 
-import { useAppSelector } from '@/redux/store/hooks'; // adjust path if needed
-import { selectTreeModel } from '@/redux/json/slice'; // adjust path if needed
+import { useAppSelector } from '@/redux/store/hooks';
+import { selectTreeModel } from '@/redux/json/slice';
 
-// Layout constants — tweak to taste
-const COLUMN_WIDTH = 220;
-const ROW_HEIGHT = 80;
 const NODE_WIDTH = 160;
 const NODE_HEIGHT = 48;
 
-/**
- * Simple deterministic layout:
- * - depth is computed from the path (root = 0, dot/bracket separators increase depth)
- * - nodes at the same depth are stacked vertically
- */
-function computePositions(nodes: { id: string; path: string }[]) {
-    const depthBuckets: Record<number, string[]> = {};
+// Dagre layout helper
+function dagreLayout(nodes: RFNode[], edges: RFEdge[], direction: 'TB' | 'LR' = 'TB') {
+    const g = new dagre.graphlib.Graph();
+    g.setDefaultEdgeLabel(() => ({}));
+    g.setGraph({
+        rankdir: direction, // TB = top→bottom
+        nodesep: 40,        // horizontal spacing between nodes
+        ranksep: 150,       // vertical spacing between levels
+        marginx: 20,
+        marginy: 20,
+    }); // 'TB' = top->bottom, 'LR' = left->right
 
-    for (const n of nodes) {
-        // compute depth: count dots + bracket openings
-        const depth =
-            n.path === 'root'
-                ? 0
-                : (n.path.match(/\./g)?.length ?? 0) + (n.path.match(/\[/g)?.length ?? 0);
-        if (!depthBuckets[depth]) depthBuckets[depth] = [];
-        depthBuckets[depth].push(n.id);
-    }
+    nodes.forEach((n) => {
+        g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+    });
 
-    // compute y index for each id
-    const positions: Record<string, { x: number; y: number }> = {};
-    Object.keys(depthBuckets)
-        .map((k) => Number(k))
-        .sort((a, b) => a - b)
-        .forEach((depth) => {
-            const bucket = depthBuckets[depth];
-            bucket.forEach((id, idx) => {
-                const x = depth * COLUMN_WIDTH + 20; // 20px padding
-                const y = idx * ROW_HEIGHT + 20;
-                positions[id] = { x, y };
-            });
-        });
+    edges.forEach((e) => {
+        g.setEdge(e.source, e.target);
+    });
 
-    return positions;
+    dagre.layout(g);
+
+    const positioned = nodes.map((n) => {
+        const nodeWithPos = g.node(n.id);
+        if (!nodeWithPos) return n;
+        // Dagre gives center coordinates — convert to top-left based coordinates used by React Flow
+        return {
+            ...n,
+            position: { x: nodeWithPos.x - NODE_WIDTH / 2, y: nodeWithPos.y - NODE_HEIGHT / 2 },
+            // lock the node so reactflow doesn't override it by default
+            dragHandle: undefined,
+            data: n.data,
+        } as RFNode;
+    });
+
+    return positioned;
+}
+
+function pickColorsForType(type: string, isDark: boolean) {
+    // hex palette tuned for both themes
+    const palette: Record<string, { light: { bg: string; border: string; text: string }; dark: { bg: string; border: string; text: string } }> = {
+        object: {
+            light: { bg: '#ede9fe', border: '#7c3aed', text: '#1f2937' }, // purple-ish
+            dark: { bg: '#2a2250', border: '#8b5cf6', text: '#f8fafc' },
+        },
+        array: {
+            light: { bg: '#ecfdf5', border: '#059669', text: '#064e3b' }, // green
+            dark: { bg: '#07221a', border: '#34d399', text: '#ecfeff' },
+        },
+        primitive: {
+            light: { bg: '#fff7ed', border: '#f97316', text: '#7c2d12' }, // orange
+            dark: { bg: '#2b1608', border: '#fb923c', text: '#fff7ed' },
+        },
+        nullish: {
+            light: { bg: '#f3f4f6', border: '#9ca3af', text: '#374151' }, // gray
+            dark: { bg: '#111827', border: '#374151', text: '#cbd5e1' },
+        },
+        unknown: {
+            light: { bg: '#f8fafc', border: '#94a3b8', text: '#0f172a' },
+            dark: { bg: '#0b1220', border: '#475569', text: '#e6eef8' },
+        },
+    };
+
+    const key =
+        type === 'object' ? 'object' : type === 'array' ? 'array' : type === 'null' ? 'nullish' : type === 'unknown' ? 'unknown' : 'primitive';
+
+    return isDark ? palette[key].dark : palette[key].light;
 }
 
 export default function TreeCanvas() {
-    // read tree from redux
     const tree = useAppSelector((s) => s.jsonTree?.tree);
-    const rf = useReactFlow();
+    const { theme, systemTheme } = useTheme();
+    const currentTheme = theme === 'system' ? systemTheme : theme;
+    const isDark = currentTheme === 'dark';
 
-    // memoize mapping to avoid recalculation on unrelated renders
-    const { nodes: rfNodes, edges: rfEdges } = useMemo(() => {
-        if (!tree || !tree.nodes || tree.nodes.length === 0) {
-            return { nodes: [], edges: [] };
-        }
+    // prepare react-flow nodes/edges from our tree model
+    const { rfNodes, rfEdges } = useMemo(() => {
+        if (!tree || !tree.nodes || tree.nodes.length === 0) return { rfNodes: [], rfEdges: [] };
 
-        // prepare simplified node list for depth computation
-        const simpleNodes = tree.nodes.map((n) => ({ id: n.id, path: n.path }));
-
-        const positions = computePositions(simpleNodes);
-
-        // Convert to React Flow nodes
         const nodes: RFNode[] = tree.nodes.map((n) => {
-            const pos = positions[n.id] ?? { x: 0, y: 0 };
+            // pick colors based on node.type
+            const colors = pickColorsForType(n.type, isDark);
+
+            // ensure readable text color usage
+            const label = (
+                <div className="flex flex-col" style={{ color: colors.text }}>
+                    <div style={{ fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.label}</div>
+                    {n.valuePreview ? (
+                        <div style={{ fontSize: 11, opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.valuePreview}</div>
+                    ) : null}
+                </div>
+            );
+
             return {
                 id: n.id,
-                data: {
-                    label: (
-                        <div className="flex flex-col">
-                            <div className="font-medium text-sm truncate">{n.label}</div>
-                            {n.valuePreview ? (
-                                <div className="text-xs text-muted-foreground truncate">{n.valuePreview}</div>
-                            ) : null}
-                        </div>
-                    ),
-                },
-                position: pos,
+                data: { label },
+                position: { x: 0, y: 0 }, // dagre will set real positions
                 style: {
                     width: NODE_WIDTH,
                     height: NODE_HEIGHT,
-                    padding: 8,
+                    background: colors.bg,
+                    border: `2px solid ${colors.border}`,
+                    color: colors.text,
                     borderRadius: 8,
+                    boxShadow: isDark ? '0 2px 8px rgba(0,0,0,0.6)' : '0 1px 4px rgba(16,24,40,0.04)',
                 },
-                // you can set `type` to custom node types later
             } as RFNode;
         });
 
-        // Convert to React Flow edges
-        const edges: RFEdge[] = (tree.edges || []).map((e) => {
-            return {
-                id: e.id,
-                source: e.source,
-                target: e.target,
-                animated: false,
-                label: e.label,
-                style: { strokeWidth: 1.5 },
-            } as RFEdge;
-        });
+        const edges: RFEdge[] = (tree.edges || []).map((e) => ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            animated: false,
+            style: { strokeWidth: 1.2, stroke: isDark ? '#9ca3af' : '#374151', opacity: 0.9 },
+        }));
 
-        return { nodes, edges };
-    }, [tree]);
+        return { rfNodes: nodes, rfEdges: edges };
+    }, [tree, isDark]);
 
-    // Fit view whenever nodes change (debounced internally by reactflow)
+    // compute dagre positions (memoized)
+    const positionedNodes = useMemo(() => {
+        if (rfNodes.length === 0) return [];
+        return dagreLayout(rfNodes, rfEdges, 'TB'); // top -> bottom
+    }, [rfNodes, rfEdges]);
+
+    return (
+        <div className="h-full w-full">
+            <ReactFlowProvider>
+                <InnerFlow nodes={positionedNodes} edges={rfEdges} isDark={isDark} />
+            </ReactFlowProvider>
+        </div>
+    );
+}
+/** inner component uses useReactFlow safely inside provider */
+function InnerFlow({ nodes, edges, isDark }: { nodes: RFNode[]; edges: RFEdge[]; isDark: boolean }) {
+    const rf = useReactFlow();
+
     useEffect(() => {
-        if (!rf || !rf.fitView) return;
-        if (rfNodes.length === 0) return;
-        // slight timeout to allow layout to apply
+        if (!rf || nodes.length === 0) return;
         const t = setTimeout(() => {
             try {
-                rf.fitView({ padding: 0.1 });
+                rf.fitView({ padding: 0.12 });
             } catch (err) {
                 // ignore
             }
         }, 150);
         return () => clearTimeout(t);
-    }, [rf, rfNodes.length]);
+    }, [rf, nodes.length]);
 
-    if (!tree || !tree.nodes || tree.nodes.length === 0) {
+    if (nodes.length === 0) {
         return (
             <div className="h-full w-full flex items-center justify-center text-sm text-muted-foreground p-6">
                 <div className="max-w-sm text-center">
                     <div className="text-lg font-medium mb-2">No data to visualize</div>
-                    <div>Paste JSON in the editor on the left to see a tree visualization here.</div>
+                    <div>Paste JSON in the editor on the left to see the tree here.</div>
                 </div>
             </div>
         );
     }
 
+    // MiniMap color mapping uses same type-to-color function.
+    const nodeColor = (node: { id: string }) => {
+        // nodes prop doesn't include type here, try to find from nodes array
+        const n = nodes.find((x) => x.id === node.id);
+        if (!n) return isDark ? '#94a3b8' : '#475569';
+        // extract the background style set earlier
+        const bg = (n.style as any)?.background;
+        return bg ?? (isDark ? '#94a3b8' : '#475569');
+    };
+
     return (
-        <div className="h-full w-full">
-            <ReactFlow nodes={rfNodes} edges={rfEdges} fitView>
-                <Background gap={16} />
-                <MiniMap zoomable pannable nodeStrokeWidth={2} />
-                <Controls />
-            </ReactFlow>
-        </div>
+        <ReactFlow nodes={nodes} edges={edges} fitView attributionPosition="bottom-left">
+            <Background gap={16} />
+            <MiniMap zoomable pannable nodeStrokeWidth={2} nodeColor={nodeColor} maskColor={isDark ? '#05060aAA' : '#f8fafcAA'} />
+            <Controls />
+        </ReactFlow>
     );
 }
