@@ -1,7 +1,21 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Providers } from './providers';
+import { ReduxProvider } from "@/redux/provider";
 
+const setThemeScript = `
+(function(){
+  try {
+    const key = 'theme'; // change if you use a custom key
+    const stored = localStorage.getItem(key);
+    const isDark = stored === 'dark' || (!stored && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const theme = isDark ? 'dark' : 'light';
+    document.documentElement.classList.add(theme);
+    document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
+  } catch(e){}
+})();
+`;
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -23,11 +37,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
+      > <ReduxProvider>
+          <Providers>{children}</Providers>
+        </ReduxProvider>
+
       </body>
     </html>
   );
