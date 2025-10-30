@@ -20,6 +20,13 @@ export default function SplitCanvas() {
   const dragging = useRef(false);
   const splitterRef = useRef<HTMLDivElement | null>(null);
 
+  // whether layout is horizontal (side-by-side) or vertical (stacked)
+  const [isHorizontal, setIsHorizontal] = useState<boolean>(() => {
+    // initial safe guess for SSR (will be corrected after hydration)
+    if (typeof window === 'undefined') return true;
+    return window.innerWidth >= 768;
+  });
+
   // Load persisted width on client AFTER hydration
   useEffect(() => {
     try {
@@ -33,6 +40,10 @@ export default function SplitCanvas() {
     } catch {
       /* ignore */
     }
+
+    // ensure initial isHorizontal matches viewport
+    const check = () => setIsHorizontal(window.innerWidth >= 768);
+    check();
   }, []);
 
   // persist width (writing is fine — doesn't affect SSR)
@@ -41,6 +52,25 @@ export default function SplitCanvas() {
       window.localStorage.setItem(STORAGE_KEY, String(leftWidth));
     } catch { }
   }, [leftWidth]);
+
+  // clamp leftWidth when container resizes or orientation changes
+  useEffect(() => {
+    const onResize = () => {
+      setIsHorizontal(window.innerWidth >= 768);
+      setLeftWidth((p) => Math.min(MAX_PCT, Math.max(MIN_PCT, p)));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Make sure dragging stops if pointer is released outside the splitter
+  useEffect(() => {
+    const onPointerUpWindow = () => {
+      dragging.current = false;
+    };
+    window.addEventListener('pointerup', onPointerUpWindow);
+    return () => window.removeEventListener('pointerup', onPointerUpWindow);
+  }, []);
 
   // pointer handlers (use currentTarget)
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -53,11 +83,20 @@ export default function SplitCanvas() {
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging.current) return;
-    const container = document.getElementById('split-root');
+    const container = containerRef.current;
     if (!container) return;
     const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    let pct = (x / rect.width) * 100;
+
+    let pct: number;
+    if (isHorizontal) {
+      const x = e.clientX - rect.left;
+      pct = (x / rect.width) * 100;
+    } else {
+      // vertical / stacked layout: treat top area as "left"
+      const y = e.clientY - rect.top;
+      pct = (y / rect.height) * 100;
+    }
+
     if (pct < MIN_PCT) pct = MIN_PCT;
     if (pct > MAX_PCT) pct = MAX_PCT;
     setLeftWidth(pct);
@@ -74,36 +113,70 @@ export default function SplitCanvas() {
     } catch { }
   };
 
-  // keyboard support
+  // keyboard support (arrow keys adapt to orientation)
   const onSplitterKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const step = 2;
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, Math.round((p - step) * 100) / 100)));
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, Math.round((p + step) * 100) / 100)));
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      setLeftWidth(MIN_PCT);
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      setLeftWidth(MAX_PCT);
-    } else if (e.key === 'PageUp') {
-      e.preventDefault();
-      setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, p + 10)));
-    } else if (e.key === 'PageDown') {
-      e.preventDefault();
-      setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, p - 10)));
+    if (isHorizontal) {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, Math.round((p - step) * 100) / 100)));
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, Math.round((p + step) * 100) / 100)));
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setLeftWidth(MIN_PCT);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setLeftWidth(MAX_PCT);
+      } else if (e.key === 'PageUp') {
+        e.preventDefault();
+        setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, p + 10)));
+      } else if (e.key === 'PageDown') {
+        e.preventDefault();
+        setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, p - 10)));
+      }
+    } else {
+      // vertical (top/bottom) mapping
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, Math.round((p - step) * 100) / 100)));
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, Math.round((p + step) * 100) / 100)));
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setLeftWidth(MIN_PCT);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setLeftWidth(MAX_PCT);
+      } else if (e.key === 'PageUp') {
+        e.preventDefault();
+        setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, p - 10)));
+      } else if (e.key === 'PageDown') {
+        e.preventDefault();
+        setLeftWidth((p) => Math.max(MIN_PCT, Math.min(MAX_PCT, p + 10)));
+      }
     }
   };
 
+  // compute style values depending on orientation
+  const firstStyle = isHorizontal ? { width: `${leftWidth}%` } : { height: `${leftWidth}%` };
+  const secondStyle = isHorizontal ? { width: `${100 - leftWidth}%` } : { height: `${100 - leftWidth}%` };
+
   return (
     <div className="h-full bg-background text-foreground">
-      <main id="split-root" className="flex h-[calc(100vh-64px)]">
+      <main
+        id="split-root"
+        className={`flex h-[calc(100vh-64px)] ${isHorizontal ? 'flex-col md:flex-row' : 'flex-col'}`}
+        style={{ minHeight: 0 }}
+      >
         {isEditorOpen ? (
-          <aside style={{ width: `${leftWidth}%` }} className="flex flex-col border-r border-border">
-            <div className="flex-1">
+          <aside
+            style={firstStyle}
+            className={`flex ${isHorizontal ? 'flex-col border-r border-border' : 'flex-col border-b border-border'}`}
+          >
+            <div className="flex-1 min-h-0">
               <EditorPanel />
             </div>
           </aside>
@@ -112,7 +185,7 @@ export default function SplitCanvas() {
         {isEditorOpen ? (
           <div
             role="separator"
-            aria-orientation="vertical"
+            aria-orientation={isHorizontal ? 'vertical' : 'horizontal'}
             aria-valuemin={MIN_PCT}
             aria-valuemax={MAX_PCT}
             aria-valuenow={Math.round(leftWidth)}
@@ -122,16 +195,27 @@ export default function SplitCanvas() {
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onKeyDown={onSplitterKeyDown}
-            className="w-2 cursor-col-resize bg-transparent hover:bg-border flex items-center justify-center"
+            className={`${
+              isHorizontal ? 'w-2 cursor-col-resize' : 'h-2 cursor-row-resize'
+            } bg-transparent hover:bg-border flex items-center justify-center`}
             style={{ touchAction: 'none' }}
+            aria-label={isHorizontal ? 'Resize panels horizontally' : 'Resize panels vertically'}
           >
-            <div className="w-0.5 h-24 bg-border rounded" />
+            {/* visual bar */}
+            {isHorizontal ? (
+              <div className="w-0.5 h-24 bg-border rounded" />
+            ) : (
+              <div className="h-0.5 w-24 bg-border rounded" />
+            )}
           </div>
         ) : null}
 
-        <section style={{ width: `${100 - leftWidth}%` }} className="flex-1 flex flex-col">
-
-          <div className="flex-1" ref={containerRef}>
+        <section
+          style={secondStyle}
+          className="flex-1 flex flex-col min-h-0"
+          
+        >
+          <div className="flex-1 min-h-0" ref={containerRef}>
             <ReactFlowProvider>
               <TreeCanvas containerRef={containerRef} />
             </ReactFlowProvider>
